@@ -1,0 +1,33 @@
+name: "GeoDiff Action"
+description: "GitHub Action for geospatial file diff operations"
+author: "francbartoli"
+branding:
+  icon: "map"
+  color: "blue"
+
+inputs:
+  base_file:
+    description: "Path to the base geospatial file"
+    required: true
+  compare_file:
+    description: "Path to the file to compare against base"
+    required: true
+  output_format:
+    description: "Output format for the diff result (json, geojson, summary)"
+    default: "geojson"
+  summary:
+    description: "Add Summary to Job"
+    default: "true"
+  token:
+    description: "GitHub Token"
+    default: ${{ github.token }}
+
+outputs:
+  diff_result:
+    description: "The diff result output"
+  has_changes:
+    description: "Boolean indicating if changes were detected"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"

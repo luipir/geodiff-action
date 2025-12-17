@@ -1,0 +1,59 @@
+name: "Test"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - ".github/workflows/test.yaml"
+      - "src/**"
+      - "action.yml"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: "Test"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Debug event.json"
+        if: ${{ !github.event.act }}
+        continue-on-error: true
+        run: cat "${GITHUB_EVENT_PATH}"
+
+      - name: "Debug Environment"
+        if: ${{ !github.event.act }}
+        continue-on-error: true
+        run: env
+
+      - name: "Create test geospatial files"
+        run: |
+          mkdir -p test-data
+          echo '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"name":"test"}}]}' > test-data/base.geojson
+          echo '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"name":"test"}}]}' > test-data/compare.geojson
+
+      - name: "Test Local Action"
+        id: test
+        uses: ./
+        with:
+          base_file: "test-data/base.geojson"
+          compare_file: "test-data/compare.geojson"
+          output_format: "geojson"
+          summary: ${{ !github.event.act }}
+
+      - name: "Check Outputs"
+        run: |
+          echo "diff_result: ${{ steps.test.outputs.diff_result }}"
+          echo "has_changes: ${{ steps.test.outputs.has_changes }}"
