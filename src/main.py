@@ -64,8 +64,14 @@ except GeoDiffError as e:
 
 
 # Outputs
-
-core.set_output("diff_result", formatted_output)
+# For JSON output, use compact format to avoid multiline issues with GitHub Actions
+if output_format == "json":
+    compact_output = json.dumps(diff_result)
+    core.set_output("diff_result", compact_output)
+else:
+    # For summary format, escape newlines
+    escaped_output = formatted_output.replace("\n", "%0A")
+    core.set_output("diff_result", escaped_output)
 core.set_output("has_changes", str(has_changes).lower())
 
 
