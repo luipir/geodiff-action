@@ -8,11 +8,14 @@ A GitHub Action for comparing GeoPackage and SQLite database files using [pygeod
 
 - Compare GeoPackage (.gpkg) and SQLite (.sqlite, .db) files
 - Detect inserted, updated, and deleted records
+- **Auto-compare with previous git commit** when only one file is provided
 - Output diff results in JSON or summary format
 - Generate job summaries with detailed change reports
 - Uses the powerful [pygeodiff](https://pypi.org/project/pygeodiff/) library from Mergin Maps
 
 ## Usage
+
+### Compare two files
 
 ```yaml
 - uses: francbartoli/geodiff-action@v1
@@ -22,12 +25,27 @@ A GitHub Action for comparing GeoPackage and SQLite database files using [pygeod
     output_format: 'json'
 ```
 
+### Auto-compare with previous commit
+
+When `compare_file` is not provided, the action automatically compares the current version of `base_file` with its version from the previous commit:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 2  # Need at least 2 commits for comparison
+
+- uses: francbartoli/geodiff-action@v1
+  with:
+    base_file: 'data/spatial.gpkg'
+    # compare_file omitted - will compare with previous commit
+```
+
 ## Inputs
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `base_file` | Path to the base GeoPackage/SQLite file | Yes | - |
-| `compare_file` | Path to the file to compare against base | Yes | - |
+| `base_file` | Path to the GeoPackage/SQLite file | Yes | - |
+| `compare_file` | Path to the file to compare against base. If not provided, compares with previous git commit. | No | - |
 | `output_format` | Output format for the diff result (json, summary) | No | `json` |
 | `summary` | Add Summary to Job | No | `true` |
 | `token` | GitHub Token | No | `${{ github.token }}` |

@@ -1,9 +1,12 @@
 import json
+import os
+from pathlib import Path
 
 from actions import context, core
 
 import functions
 from geodiff import GeoDiffError, compute_diff, format_output
+from git_utils import GitError, get_file_from_commit, get_previous_commit, has_file_in_commit, is_git_repo
 
 
 version: str = core.get_version()
@@ -14,8 +17,8 @@ core.info(f"Starting GeoDiff Action - \033[32;1m{version}")
 
 base_file: str = core.get_input("base_file", True)
 core.info(f"base_file: \033[36;1m{base_file}")
-compare_file: str = core.get_input("compare_file", True)
-core.info(f"compare_file: \033[36;1m{compare_file}")
+compare_file: str = core.get_input("compare_file") or ""
+core.info(f"compare_file: \033[36;1m{compare_file or '(not provided - using git history)'}")
 output_format: str = core.get_input("output_format") or "json"
 core.info(f"output_format: \033[35;1m{output_format}")
 summary: bool = core.get_bool("summary")
@@ -50,17 +53,100 @@ core.info(f"repository.html_url: {html_url}")
 
 core.info("Performing geospatial diff using pygeodiff...")
 
-try:
-    diff_result = compute_diff(base_file, compare_file)
-    has_changes = diff_result["has_changes"]
-    formatted_output = format_output(diff_result, output_format)
+# Track temp files for cleanup
+temp_files_to_cleanup: list[str] = []
 
-    with core.group("Diff Result"):
-        core.info(formatted_output)
+# Initialize variables
+actual_base: str | None = None
+actual_compare: str | None = None
+diff_result: dict = {}
+has_changes: bool = False
+formatted_output: str = ""
+
+try:
+    # Determine comparison mode
+    if compare_file:
+        # Standard mode: compare two provided files
+        actual_base = base_file
+        actual_compare = compare_file
+        core.info("Mode: comparing two provided files")
+    else:
+        # Git history mode: compare current file with previous commit
+        core.info("Mode: comparing with previous git commit")
+
+        # Get the repository root (current working directory in GitHub Actions)
+        repo_path = os.getcwd()
+
+        if not is_git_repo(repo_path):
+            core.set_failed("Not a git repository. Cannot compare with previous commit.")
+            raise SystemExit(1)
+
+        # The base_file path relative to repo
+        file_rel_path = base_file
+
+        # Check if file exists in previous commit
+        try:
+            prev_commit = get_previous_commit(repo_path)
+            core.info(f"Previous commit: {prev_commit[:8]}")
+        except GitError as e:
+            core.set_failed(f"Cannot get previous commit: {e}")
+            raise SystemExit(1) from e
+
+        if not has_file_in_commit(repo_path, file_rel_path, prev_commit):
+            core.info(f"File {file_rel_path} does not exist in previous commit. This is a new file.")
+            # Create empty result for new file
+            diff_result = {
+                "base_file": "(new file)",
+                "compare_file": base_file,
+                "has_changes": True,
+                "summary": {
+                    "total_changes": 0,
+                    "inserts": 0,
+                    "updates": 0,
+                    "deletes": 0,
+                },
+                "changes": {"geodiff": []},
+                "note": "File is new in this commit",
+            }
+            has_changes = True
+            formatted_output = format_output(diff_result, output_format)
+
+            with core.group("Diff Result"):
+                core.info(formatted_output)
+            # actual_base and actual_compare remain None, skipping diff computation
+        else:
+            # Extract file from previous commit
+            try:
+                prev_file_path = get_file_from_commit(repo_path, file_rel_path, prev_commit)
+                temp_files_to_cleanup.append(prev_file_path)
+                core.info(f"Extracted previous version to: {prev_file_path}")
+            except GitError as e:
+                core.set_failed(f"Failed to extract file from previous commit: {e}")
+                raise SystemExit(1) from e
+
+            # Previous commit version is the base, current file is what we compare against
+            actual_base = prev_file_path
+            actual_compare = base_file
+
+    # Perform diff if we have files to compare
+    if actual_base is not None and actual_compare is not None:
+        diff_result = compute_diff(actual_base, actual_compare)
+        has_changes = diff_result["has_changes"]
+        formatted_output = format_output(diff_result, output_format)
+
+        with core.group("Diff Result"):
+            core.info(formatted_output)
 
 except GeoDiffError as e:
     core.set_failed(f"GeoDiff error: {e}")
     raise SystemExit(1) from e
+finally:
+    # Cleanup temp files
+    for temp_file in temp_files_to_cleanup:
+        try:
+            Path(temp_file).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 # Outputs
@@ -78,7 +164,7 @@ core.set_output("has_changes", str(has_changes).lower())
 # Summary
 
 if summary:
-    diff_summary = diff_result["summary"]
+    diff_summary: dict = diff_result["summary"]
 
     inputs_table = ["<table><tr><th>Input</th><th>Value</th></tr>"]
     for name, value in [("base_file", base_file), ("compare_file", compare_file), ("output_format", output_format)]:

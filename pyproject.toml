@@ -30,6 +30,8 @@ test = [
 # https://bandit.readthedocs.io/en/latest/config.html
 [tool.bandit]
 exclude_dirs = [".venv"]
+# Skip low-severity subprocess warnings for git commands
+skips = ["B404", "B603", "B607", "B110"]
 
 # Coverage
 # https://coverage.readthedocs.io/en/latest/

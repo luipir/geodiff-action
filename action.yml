@@ -7,11 +7,11 @@ branding:
 
 inputs:
   base_file:
-    description: "Path to the base GeoPackage/SQLite file"
+    description: "Path to the GeoPackage/SQLite file. If compare_file is not provided, compares current version with the previous git commit."
     required: true
   compare_file:
-    description: "Path to the file to compare against base"
-    required: true
+    description: "Path to the file to compare against base. If not provided, base_file will be compared against its previous git commit version."
+    required: false
   output_format:
     description: "Output format for the diff result (json, summary)"
     default: "json"
