@@ -35,8 +35,15 @@ def is_git_repo(path: str) -> bool:
 
 def _mark_safe_directory(path: str) -> None:
     """Mark a directory as safe for git operations (needed in containers)."""
+    # Mark the specific directory
     subprocess.run(
         ["git", "config", "--global", "--add", "safe.directory", path],
+        capture_output=True,
+        check=False,
+    )
+    # Also mark all directories as safe (needed for nested repos in CI)
+    subprocess.run(
+        ["git", "config", "--global", "--add", "safe.directory", "*"],
         capture_output=True,
         check=False,
     )

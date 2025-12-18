@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 from actions import context, core
@@ -7,6 +8,13 @@ import functions
 from geodiff import GeoDiffError, compute_diff, format_output
 from git_utils import GitError, find_repo_root, get_file_from_commit, get_previous_commit, has_file_in_commit
 
+# Configure git to trust all directories (needed for Docker containers)
+# This must be done early before any git operations
+subprocess.run(
+    ["git", "config", "--global", "--add", "safe.directory", "*"],
+    capture_output=True,
+    check=False,
+)
 
 version: str = core.get_version()
 core.info(f"Starting GeoDiff Action - \033[32;1m{version}")
