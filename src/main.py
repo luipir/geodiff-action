@@ -137,11 +137,18 @@ try:
                 "note": "File is new in this commit",
             }
             has_changes = True
-            formatted_output = format_output(diff_result, output_format)
             core.info(f"New file: has_changes={has_changes}, diff_result keys={list(diff_result.keys())}")
+            try:
+                core.info("Calling format_output...")
+                formatted_output = format_output(diff_result, output_format)
+                core.info(f"format_output returned, length={len(formatted_output)}")
 
-            with core.group("Diff Result"):
-                core.info(formatted_output)
+                with core.group("Diff Result"):
+                    core.info(formatted_output)
+                core.info("Finished new file handling")
+            except Exception as e:
+                core.info(f"ERROR in new file handling: {type(e).__name__}: {e}")
+                raise
             # actual_base and actual_compare remain None, skipping diff computation
         else:
             # Extract file from previous commit
@@ -179,6 +186,9 @@ finally:
 
 
 # Outputs
+import os
+github_output = os.environ.get("GITHUB_OUTPUT", "NOT SET")
+core.info(f"GITHUB_OUTPUT env var: {github_output}")
 core.info(f"Setting outputs: has_changes={has_changes}, diff_result type={type(diff_result).__name__}")
 # For JSON output, use compact format to avoid multiline issues with GitHub Actions
 if output_format == "json":
