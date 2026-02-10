@@ -5,16 +5,20 @@ compares the current version with the previous git commit version.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-import sys
-
 sys.path.insert(0, "src")
 sys.path.insert(0, "tests")
 
-from conftest import ITALIAN_CITIES_BASE, ITALIAN_CITIES_MODIFIED, create_geopackage
+from conftest import (
+    ITALIAN_CITIES_BASE,
+    ITALIAN_CITIES_MODIFIED,
+    create_geopackage,
+)
+
 from geodiff import compute_diff
 from git_utils import (
     GitError,
@@ -47,7 +51,9 @@ def git_repo_with_gpkg(tmp_path):
     repo_dir.mkdir()
 
     # Initialize git repo
-    subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "init"], cwd=repo_dir, capture_output=True, check=True
+    )
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=repo_dir,
@@ -74,7 +80,9 @@ def git_repo_with_gpkg(tmp_path):
         description="Italian cities dataset - Initial",
     )
 
-    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "Initial commit with 5 Italian cities"],
         cwd=repo_dir,
@@ -91,9 +99,16 @@ def git_repo_with_gpkg(tmp_path):
         description="Italian cities dataset - Modified",
     )
 
-    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
     subprocess.run(
-        ["git", "commit", "-m", "Update cities: add Bologna/Venezia, remove Napoli/Firenze, update Roma/Torino"],
+        ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-m",
+            "Update cities: add Bologna/Venezia, remove Napoli/Firenze, update Roma/Torino",
+        ],
         cwd=repo_dir,
         capture_output=True,
         check=True,
@@ -117,7 +132,9 @@ def git_repo_with_new_gpkg(tmp_path):
     repo_dir.mkdir()
 
     # Initialize git repo
-    subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "init"], cwd=repo_dir, capture_output=True, check=True
+    )
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=repo_dir,
@@ -134,7 +151,9 @@ def git_repo_with_new_gpkg(tmp_path):
     # Create initial commit with a dummy file
     readme = repo_dir / "README.md"
     readme.write_text("# Test Repository")
-    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
         cwd=repo_dir,
@@ -153,7 +172,9 @@ def git_repo_with_new_gpkg(tmp_path):
         description="Italian cities dataset - New file",
     )
 
-    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "Add new GeoPackage with Italian cities"],
         cwd=repo_dir,
@@ -177,10 +198,15 @@ class TestGitHistoryModeExtraction:
         assert len(prev_commit) == 40  # Full SHA
 
         # Verify file exists in previous commit
-        assert has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit) is True
+        assert (
+            has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit)
+            is True
+        )
 
         # Extract file from previous commit
-        extracted_path = get_file_from_commit(str(repo_path), gpkg_rel_path, prev_commit)
+        extracted_path = get_file_from_commit(
+            str(repo_path), gpkg_rel_path, prev_commit
+        )
         assert extracted_path is not None
         assert Path(extracted_path).exists()
         assert extracted_path.endswith(".gpkg")
@@ -195,7 +221,9 @@ class TestGitHistoryModeExtraction:
         # Get paths
         current_file = repo_path / gpkg_rel_path
         prev_commit = get_previous_commit(str(repo_path))
-        prev_file = get_file_from_commit(str(repo_path), gpkg_rel_path, prev_commit)
+        prev_file = get_file_from_commit(
+            str(repo_path), gpkg_rel_path, prev_commit
+        )
 
         try:
             # Compute diff: previous -> current
@@ -207,9 +235,15 @@ class TestGitHistoryModeExtraction:
 
             # Verify exact change counts
             # Changes: 2 inserts (Bologna, Venezia), 2 updates (Roma, Torino), 2 deletes (Napoli, Firenze)
-            assert result["summary"]["inserts"] == 2, f"Expected 2 inserts, got {result['summary']['inserts']}"
-            assert result["summary"]["updates"] == 2, f"Expected 2 updates, got {result['summary']['updates']}"
-            assert result["summary"]["deletes"] == 2, f"Expected 2 deletes, got {result['summary']['deletes']}"
+            assert result["summary"]["inserts"] == 2, (
+                f"Expected 2 inserts, got {result['summary']['inserts']}"
+            )
+            assert result["summary"]["updates"] == 2, (
+                f"Expected 2 updates, got {result['summary']['updates']}"
+            )
+            assert result["summary"]["deletes"] == 2, (
+                f"Expected 2 deletes, got {result['summary']['deletes']}"
+            )
 
         finally:
             # Cleanup
@@ -223,9 +257,14 @@ class TestGitHistoryModeExtraction:
         prev_commit = get_previous_commit(str(repo_path))
 
         # Verify file does NOT exist in previous commit
-        assert has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit) is False
+        assert (
+            has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit)
+            is False
+        )
 
-    def test_extract_nonexistent_file_raises_error(self, git_repo_with_new_gpkg):
+    def test_extract_nonexistent_file_raises_error(
+        self, git_repo_with_new_gpkg
+    ):
         """Test that extracting a file that doesn't exist in previous commit raises error."""
         repo_path, gpkg_rel_path = git_repo_with_new_gpkg
 
@@ -244,22 +283,21 @@ class TestGitHistoryModeChangesets:
 
         current_file = repo_path / gpkg_rel_path
         prev_commit = get_previous_commit(str(repo_path))
-        prev_file = get_file_from_commit(str(repo_path), gpkg_rel_path, prev_commit)
+        prev_file = get_file_from_commit(
+            str(repo_path), gpkg_rel_path, prev_commit
+        )
 
         try:
             result = compute_diff(prev_file, str(current_file))
 
-            # Verify cities table is in changeset
-            changes = result["changes"]["geodiff"]
-            assert len(changes) > 0
+            # Verify cities table is in changeset (flat list, one entry per row)
+            entries = result["changes"]["geodiff"]
+            assert len(entries) > 0
 
-            cities_table = None
-            for table_change in changes:
-                if table_change.get("table") == "cities":
-                    cities_table = table_change
-                    break
-
-            assert cities_table is not None, "Expected 'cities' table in changeset"
+            tables_found = {e.get("table") for e in entries}
+            assert "cities" in tables_found, (
+                f"Expected 'cities' table in changeset, found: {tables_found}"
+            )
 
         finally:
             Path(prev_file).unlink()
@@ -270,31 +308,29 @@ class TestGitHistoryModeChangesets:
 
         current_file = repo_path / gpkg_rel_path
         prev_commit = get_previous_commit(str(repo_path))
-        prev_file = get_file_from_commit(str(repo_path), gpkg_rel_path, prev_commit)
+        prev_file = get_file_from_commit(
+            str(repo_path), gpkg_rel_path, prev_commit
+        )
 
         try:
             result = compute_diff(prev_file, str(current_file))
 
-            # Count change types from changeset
-            changes = result["changes"]["geodiff"]
-            inserts = 0
-            updates = 0
-            deletes = 0
-
-            for table_change in changes:
-                for change in table_change.get("changes", []):
-                    change_type = change.get("type")
-                    if change_type == "insert":
-                        inserts += 1
-                    elif change_type == "update":
-                        updates += 1
-                    elif change_type == "delete":
-                        deletes += 1
+            # Count change types from changeset (flat list, one entry per row)
+            entries = result["changes"]["geodiff"]
+            inserts = sum(1 for e in entries if e["type"] == "insert")
+            updates = sum(1 for e in entries if e["type"] == "update")
+            deletes = sum(1 for e in entries if e["type"] == "delete")
 
             # Verify counts match expected
-            assert inserts == 2, f"Expected 2 inserts (Bologna, Venezia), got {inserts}"
-            assert updates == 2, f"Expected 2 updates (Roma, Torino), got {updates}"
-            assert deletes == 2, f"Expected 2 deletes (Napoli, Firenze), got {deletes}"
+            assert inserts == 2, (
+                f"Expected 2 inserts (Bologna, Venezia), got {inserts}"
+            )
+            assert updates == 2, (
+                f"Expected 2 updates (Roma, Torino), got {updates}"
+            )
+            assert deletes == 2, (
+                f"Expected 2 deletes (Napoli, Firenze), got {deletes}"
+            )
 
         finally:
             Path(prev_file).unlink()
@@ -309,7 +345,9 @@ class TestGitHistoryModeEdgeCases:
         repo_dir.mkdir()
 
         # Initialize git repo
-        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "init"], cwd=repo_dir, capture_output=True, check=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=repo_dir,
@@ -331,7 +369,9 @@ class TestGitHistoryModeEdgeCases:
             features=ITALIAN_CITIES_BASE,
         )
 
-        subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Initial commit"],
             cwd=repo_dir,
@@ -342,7 +382,9 @@ class TestGitHistoryModeEdgeCases:
         # Create another commit without changing the GeoPackage
         readme = repo_dir / "README.md"
         readme.write_text("# Documentation")
-        subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Add README"],
             cwd=repo_dir,
@@ -352,7 +394,9 @@ class TestGitHistoryModeEdgeCases:
 
         # Compare with previous commit - should show no changes
         prev_commit = get_previous_commit(str(repo_dir))
-        prev_file = get_file_from_commit(str(repo_dir), "data.gpkg", prev_commit)
+        prev_file = get_file_from_commit(
+            str(repo_dir), "data.gpkg", prev_commit
+        )
 
         try:
             result = compute_diff(prev_file, str(gpkg_path))
@@ -372,7 +416,9 @@ class TestGitHistoryModeEdgeCases:
         repo_dir.mkdir()
 
         # Initialize git repo with single commit
-        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "init"], cwd=repo_dir, capture_output=True, check=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=repo_dir,
@@ -387,9 +433,13 @@ class TestGitHistoryModeEdgeCases:
         )
 
         gpkg_path = repo_dir / "data.gpkg"
-        create_geopackage(str(gpkg_path), table_name="cities", features=ITALIAN_CITIES_BASE)
+        create_geopackage(
+            str(gpkg_path), table_name="cities", features=ITALIAN_CITIES_BASE
+        )
 
-        subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=repo_dir, capture_output=True, check=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Only commit"],
             cwd=repo_dir,
@@ -427,10 +477,15 @@ class TestGitHistoryModeIntegration:
         assert prev_commit is not None
 
         # Step 3: Check file exists in previous commit
-        assert has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit) is True
+        assert (
+            has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit)
+            is True
+        )
 
         # Step 4: Extract previous version
-        prev_file = get_file_from_commit(str(repo_path), gpkg_rel_path, prev_commit)
+        prev_file = get_file_from_commit(
+            str(repo_path), gpkg_rel_path, prev_commit
+        )
         assert Path(prev_file).exists()
 
         try:
@@ -464,7 +519,10 @@ class TestGitHistoryModeIntegration:
         prev_commit = get_previous_commit(str(repo_path))
 
         # File should NOT exist in previous commit
-        assert has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit) is False
+        assert (
+            has_file_in_commit(str(repo_path), gpkg_rel_path, prev_commit)
+            is False
+        )
 
         # In this case, the action would report this as a "new file"
         # and not attempt to extract from previous commit
