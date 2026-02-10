@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -6,7 +7,13 @@ from actions import context, core
 
 import functions
 from geodiff import GeoDiffError, compute_diff, format_output
-from git_utils import GitError, find_repo_root, get_file_from_commit, get_previous_commit, has_file_in_commit
+from git_utils import (
+    GitError,
+    find_repo_root,
+    get_file_from_commit,
+    get_previous_commit,
+    has_file_in_commit,
+)
 
 # Configure git to trust all directories (needed for Docker containers)
 # This must be done early before any git operations
@@ -25,7 +32,9 @@ core.info(f"Starting GeoDiff Action - \033[32;1m{version}")
 base_file: str = core.get_input("base_file", True)
 core.info(f"base_file: \033[36;1m{base_file}")
 compare_file: str = core.get_input("compare_file") or ""
-core.info(f"compare_file: \033[36;1m{compare_file or '(not provided - using git history)'}")
+core.info(
+    f"compare_file: \033[36;1m{compare_file or '(not provided - using git history)'}"
+)
 output_format: str = core.get_input("output_format") or "json"
 core.info(f"output_format: \033[35;1m{output_format}")
 summary: bool = core.get_bool("summary")
@@ -83,6 +92,7 @@ try:
 
         # Debug: show current working directory and file info
         import os
+
         cwd = os.getcwd()
         core.info(f"Current working directory: {cwd}")
         abs_base = Path(base_file).resolve()
@@ -98,9 +108,14 @@ try:
             # Additional debug info
             core.info("Checking if cwd is git repo...")
             from git_utils import is_git_repo
+
             core.info(f"is_git_repo(cwd): {is_git_repo(cwd)}")
-            core.info(f"is_git_repo(parent): {is_git_repo(str(abs_base.parent))}")
-            core.set_failed("Not a git repository. Cannot compare with previous commit.")
+            core.info(
+                f"is_git_repo(parent): {is_git_repo(str(abs_base.parent))}"
+            )
+            core.set_failed(
+                "Not a git repository. Cannot compare with previous commit."
+            )
             raise SystemExit(1)
 
         core.info(f"Git repository root: {repo_path}")
@@ -117,11 +132,15 @@ try:
             core.set_failed(f"Cannot get previous commit: {e}")
             raise SystemExit(1) from e
 
-        file_exists_in_prev = has_file_in_commit(repo_path, file_rel_path, prev_commit)
+        file_exists_in_prev = has_file_in_commit(
+            repo_path, file_rel_path, prev_commit
+        )
         core.info(f"File exists in previous commit: {file_exists_in_prev}")
 
         if not file_exists_in_prev:
-            core.info(f"File {file_rel_path} does not exist in previous commit. This is a new file.")
+            core.info(
+                f"File {file_rel_path} does not exist in previous commit. This is a new file."
+            )
             # Create empty result for new file
             diff_result = {
                 "base_file": "(new file)",
@@ -137,27 +156,37 @@ try:
                 "note": "File is new in this commit",
             }
             has_changes = True
-            core.info(f"New file: has_changes={has_changes}, diff_result keys={list(diff_result.keys())}")
+            core.info(
+                f"New file: has_changes={has_changes}, diff_result keys={list(diff_result.keys())}"
+            )
             try:
                 core.info("Calling format_output...")
                 formatted_output = format_output(diff_result, output_format)
-                core.info(f"format_output returned, length={len(formatted_output)}")
+                core.info(
+                    f"format_output returned, length={len(formatted_output)}"
+                )
 
                 with core.group("Diff Result"):
                     core.info(formatted_output)
                 core.info("Finished new file handling")
             except Exception as e:
-                core.info(f"ERROR in new file handling: {type(e).__name__}: {e}")
+                core.info(
+                    f"ERROR in new file handling: {type(e).__name__}: {e}"
+                )
                 raise
             # actual_base and actual_compare remain None, skipping diff computation
         else:
             # Extract file from previous commit
             try:
-                prev_file_path = get_file_from_commit(repo_path, file_rel_path, prev_commit)
+                prev_file_path = get_file_from_commit(
+                    repo_path, file_rel_path, prev_commit
+                )
                 temp_files_to_cleanup.append(prev_file_path)
                 core.info(f"Extracted previous version to: {prev_file_path}")
             except GitError as e:
-                core.set_failed(f"Failed to extract file from previous commit: {e}")
+                core.set_failed(
+                    f"Failed to extract file from previous commit: {e}"
+                )
                 raise SystemExit(1) from e
 
             # Previous commit version is the base, current file is what we compare against
@@ -186,10 +215,11 @@ finally:
 
 
 # Outputs
-import os
 github_output = os.environ.get("GITHUB_OUTPUT", "NOT SET")
 core.info(f"GITHUB_OUTPUT env var: {github_output}")
-core.info(f"Setting outputs: has_changes={has_changes}, diff_result type={type(diff_result).__name__}")
+core.info(
+    f"Setting outputs: has_changes={has_changes}, diff_result type={type(diff_result).__name__}"
+)
 # For JSON output, use compact format to avoid multiline issues with GitHub Actions
 if output_format == "json":
     compact_output = json.dumps(diff_result)
@@ -210,15 +240,27 @@ if summary:
     diff_summary: dict = diff_result["summary"]
 
     inputs_table = ["<table><tr><th>Input</th><th>Value</th></tr>"]
-    for name, value in [("base_file", base_file), ("compare_file", compare_file), ("output_format", output_format)]:
+    for name, value in [
+        ("base_file", base_file),
+        ("compare_file", compare_file),
+        ("output_format", output_format),
+    ]:
         inputs_table.append(f"<tr><td>{name}</td><td>{value or '-'}</td></tr>")
     inputs_table.append("</table>")
 
     results_table = ["<table><tr><th>Change Type</th><th>Count</th></tr>"]
-    results_table.append(f"<tr><td>Total Changes</td><td>{diff_summary['total_changes']}</td></tr>")
-    results_table.append(f"<tr><td>Inserts</td><td>{diff_summary['inserts']}</td></tr>")
-    results_table.append(f"<tr><td>Updates</td><td>{diff_summary['updates']}</td></tr>")
-    results_table.append(f"<tr><td>Deletes</td><td>{diff_summary['deletes']}</td></tr>")
+    results_table.append(
+        f"<tr><td>Total Changes</td><td>{diff_summary['total_changes']}</td></tr>"
+    )
+    results_table.append(
+        f"<tr><td>Inserts</td><td>{diff_summary['inserts']}</td></tr>"
+    )
+    results_table.append(
+        f"<tr><td>Updates</td><td>{diff_summary['updates']}</td></tr>"
+    )
+    results_table.append(
+        f"<tr><td>Deletes</td><td>{diff_summary['deletes']}</td></tr>"
+    )
     results_table.append("</table>")
 
     core.summary("### GeoDiff Action Results")
@@ -226,9 +268,13 @@ if summary:
     core.summary(f"**Compare file:** `{compare_file}`")
     core.summary(f"**Changes detected:** {'Yes' if has_changes else 'No'}")
     core.summary(f"\n{''.join(results_table)}\n")
-    core.summary(f"<details><summary>Inputs</summary>{''.join(inputs_table)}</details>\n")
+    core.summary(
+        f"<details><summary>Inputs</summary>{''.join(inputs_table)}</details>\n"
+    )
     if html_url:
-        core.summary(f"[Report an issue or request a feature]({html_url}/issues)")
+        core.summary(
+            f"[Report an issue or request a feature]({html_url}/issues)"
+        )
 
 
 print("\033[32;1mGeoDiff Action completed successfully")
