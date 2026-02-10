@@ -320,9 +320,7 @@ def compute_diff(base_file: str, compare_file: str) -> dict[str, Any]:
             temp_dir.rmdir()
 
 
-def format_output(
-    diff_result: dict[str, Any], output_format: str = "json"
-) -> str:
+def format_output(diff_result: dict[str, Any], output_format: str = "json") -> str:
     """
     Format the diff result in the specified format.
 

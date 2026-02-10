@@ -5,6 +5,7 @@ LABEL org.opencontainers.image.description="GeoDiff Action - GitHub Action for g
 LABEL org.opencontainers.image.authors="Francesco Bartoli"
 
 # Install git for git history mode
+# hadolint ignore=DL3018
 RUN apk add --no-cache git
 
 # Enable bytecode compilation

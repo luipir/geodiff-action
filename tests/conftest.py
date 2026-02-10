@@ -18,9 +18,7 @@ def temp_dir():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def create_gpkg_point_geometry(
-    lon: float, lat: float, srs_id: int = 4326
-) -> bytes:
+def create_gpkg_point_geometry(lon: float, lat: float, srs_id: int = 4326) -> bytes:
     """
     Create a GeoPackage-compliant point geometry in WKB format.
 

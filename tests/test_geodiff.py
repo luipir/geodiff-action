@@ -617,18 +617,10 @@ class TestChangeTypeCounting:
         summary = result["summary"]
 
         # Verify expected changes
-        assert summary["inserts"] == 2, (
-            f"Expected 2 inserts (Bologna, Venezia), got {summary['inserts']}"
-        )
-        assert summary["updates"] == 2, (
-            f"Expected 2 updates (Roma, Torino), got {summary['updates']}"
-        )
-        assert summary["deletes"] == 2, (
-            f"Expected 2 deletes (Napoli, Firenze), got {summary['deletes']}"
-        )
-        assert summary["total_changes"] == 6, (
-            f"Expected 6 total changes, got {summary['total_changes']}"
-        )
+        assert summary["inserts"] == 2, f"Expected 2 inserts (Bologna, Venezia), got {summary['inserts']}"
+        assert summary["updates"] == 2, f"Expected 2 updates (Roma, Torino), got {summary['updates']}"
+        assert summary["deletes"] == 2, f"Expected 2 deletes (Napoli, Firenze), got {summary['deletes']}"
+        assert summary["total_changes"] == 6, f"Expected 6 total changes, got {summary['total_changes']}"
 
     def test_compute_diff_with_mocked_changes(self, temp_dir):
         """Test compute_diff with mocked pygeodiff returning specific change types."""
@@ -762,9 +754,7 @@ class TestItalianCitiesChangesets:
 
         # At least one entry should reference the cities table
         tables_found = {entry.get("table") for entry in changes["geodiff"]}
-        assert "cities" in tables_found, (
-            f"Expected 'cities' table in changeset, found: {tables_found}"
-        )
+        assert "cities" in tables_found, f"Expected 'cities' table in changeset, found: {tables_found}"
 
     def test_changeset_detail_inserts(self, empty_gpkg, base_gpkg):
         """Test that inserting 5 Italian cities produces correct changeset."""
@@ -775,9 +765,7 @@ class TestItalianCitiesChangesets:
 
         # All entries should be inserts
         for entry in entries:
-            assert entry["type"] == "insert", (
-                f"Expected insert, got {entry['type']}"
-            )
+            assert entry["type"] == "insert", f"Expected insert, got {entry['type']}"
 
     def test_changeset_detail_deletes(self, base_gpkg, empty_gpkg):
         """Test that deleting 5 Italian cities produces correct changeset."""
@@ -788,9 +776,7 @@ class TestItalianCitiesChangesets:
 
         # All entries should be deletes
         for entry in entries:
-            assert entry["type"] == "delete", (
-                f"Expected delete, got {entry['type']}"
-            )
+            assert entry["type"] == "delete", f"Expected delete, got {entry['type']}"
 
     def test_changeset_detail_mixed_changes(self, base_gpkg, modified_gpkg):
         """Test that mixed changes produce correct changeset types.
@@ -929,9 +915,7 @@ class TestIssue2_ChangesEmpty:
     column-level old/new values in the ``geodiff diff --json`` CLI format.
     """
 
-    def test_changes_contain_values_empty_to_populated(
-        self, anncsu_like_empty_gpkg, anncsu_like_gpkg
-    ):
+    def test_changes_contain_values_empty_to_populated(self, anncsu_like_empty_gpkg, anncsu_like_gpkg):
         """Issue #2: comparing empty DB (previous) to populated DB (current) must show values.
 
         This is the exact scenario reported: a previous DB with zero records
@@ -950,18 +934,12 @@ class TestIssue2_ChangesEmpty:
         for entry in entries:
             assert entry["type"] == "insert"
             assert "changes" in entry
-            assert len(entry["changes"]) > 0, (
-                f"Issue #2: insert entry has empty column changes: {entry}"
-            )
+            assert len(entry["changes"]) > 0, f"Issue #2: insert entry has empty column changes: {entry}"
             for col in entry["changes"]:
                 assert "column" in col
-                assert "new" in col, (
-                    f"Issue #2: insert column missing 'new' value: {col}"
-                )
+                assert "new" in col, f"Issue #2: insert column missing 'new' value: {col}"
 
-    def test_changes_contain_values_populated_to_empty(
-        self, anncsu_like_gpkg, anncsu_like_empty_gpkg
-    ):
+    def test_changes_contain_values_populated_to_empty(self, anncsu_like_gpkg, anncsu_like_empty_gpkg):
         """Deleting all records must show per-column old values in each entry."""
         result = compute_diff(anncsu_like_gpkg, anncsu_like_empty_gpkg)
 
@@ -975,33 +953,23 @@ class TestIssue2_ChangesEmpty:
                 assert "column" in col
                 assert "old" in col, f"Delete column missing 'old' value: {col}"
 
-    def test_changes_contain_values_with_updates(
-        self, base_gpkg, modified_gpkg
-    ):
+    def test_changes_contain_values_with_updates(self, base_gpkg, modified_gpkg):
         """Update entries must have per-column old/new values for modified columns."""
         result = compute_diff(base_gpkg, modified_gpkg)
 
         entries = result["changes"]["geodiff"]
         update_entries = [e for e in entries if e["type"] == "update"]
 
-        assert len(update_entries) == 2, (
-            f"Expected 2 updates, got {len(update_entries)}"
-        )
+        assert len(update_entries) == 2, f"Expected 2 updates, got {len(update_entries)}"
 
         for entry in update_entries:
             # At least some columns should have both old and new
             cols_with_old = [c for c in entry["changes"] if "old" in c]
             cols_with_new = [c for c in entry["changes"] if "new" in c]
-            assert len(cols_with_old) > 0, (
-                f"Update entry has no 'old' values: {entry}"
-            )
-            assert len(cols_with_new) > 0, (
-                f"Update entry has no 'new' values: {entry}"
-            )
+            assert len(cols_with_old) > 0, f"Update entry has no 'old' values: {entry}"
+            assert len(cols_with_new) > 0, f"Update entry has no 'new' values: {entry}"
 
-    def test_changes_values_match_feature_data(
-        self, anncsu_like_empty_gpkg, anncsu_like_gpkg
-    ):
+    def test_changes_values_match_feature_data(self, anncsu_like_empty_gpkg, anncsu_like_gpkg):
         """Inserted values must match the actual feature data (e.g. address names)."""
         result = compute_diff(anncsu_like_empty_gpkg, anncsu_like_gpkg)
 
@@ -1016,9 +984,7 @@ class TestIssue2_ChangesEmpty:
                 if isinstance(val, str):
                     all_new_strings.append(val)
 
-        assert any("Roma" in v for v in all_new_strings), (
-            f"Expected 'Roma' in inserted values, got: {all_new_strings}"
-        )
+        assert any("Roma" in v for v in all_new_strings), f"Expected 'Roma' in inserted values, got: {all_new_strings}"
         assert any("Via del Corso" in v for v in all_new_strings), (
             f"Expected 'Via del Corso' in inserted values, got: {all_new_strings}"
         )
@@ -1109,9 +1075,7 @@ class TestCliFormatCompatibility:
                     assert "column" in col, f"Missing 'column' key: {col}"
                     assert isinstance(col["column"], int)
                     assert "new" in col, f"INSERT column missing 'new': {col}"
-                    assert "old" not in col, (
-                        f"INSERT column should not have 'old': {col}"
-                    )
+                    assert "old" not in col, f"INSERT column should not have 'old': {col}"
         finally:
             Path(changeset_path).unlink()
             temp_dir.rmdir()
@@ -1127,9 +1091,7 @@ class TestCliFormatCompatibility:
                     assert "column" in col, f"Missing 'column' key: {col}"
                     assert isinstance(col["column"], int)
                     assert "old" in col, f"DELETE column missing 'old': {col}"
-                    assert "new" not in col, (
-                        f"DELETE column should not have 'new': {col}"
-                    )
+                    assert "new" not in col, f"DELETE column should not have 'new': {col}"
         finally:
             Path(changeset_path).unlink()
             temp_dir.rmdir()
@@ -1139,9 +1101,7 @@ class TestCliFormatCompatibility:
         changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
         try:
             result = list_changes_json(changeset_path)
-            update_entries = [
-                e for e in result["geodiff"] if e["type"] == "update"
-            ]
+            update_entries = [e for e in result["geodiff"] if e["type"] == "update"]
             assert len(update_entries) > 0
 
             for entry in update_entries:
@@ -1150,9 +1110,7 @@ class TestCliFormatCompatibility:
                     assert "column" in col
                     assert isinstance(col["column"], int)
                     # Each column must have at least 'old' or 'new'
-                    assert "old" in col or "new" in col, (
-                        f"UPDATE column has neither 'old' nor 'new': {col}"
-                    )
+                    assert "old" in col or "new" in col, f"UPDATE column has neither 'old' nor 'new': {col}"
         finally:
             Path(changeset_path).unlink()
             temp_dir.rmdir()
@@ -1162,9 +1120,7 @@ class TestCliFormatCompatibility:
         changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
         try:
             result = list_changes_json(changeset_path)
-            update_entries = [
-                e for e in result["geodiff"] if e["type"] == "update"
-            ]
+            update_entries = [e for e in result["geodiff"] if e["type"] == "update"]
 
             for entry in update_entries:
                 # cities table has 6 columns (fid, geom, name, description, population, elevation_m)
@@ -1185,9 +1141,7 @@ class TestCliFormatCompatibility:
             result = list_changes_json(changeset_path)
             entry = result["geodiff"][0]
             indices = [c["column"] for c in entry["changes"]]
-            assert indices == list(range(len(indices))), (
-                f"Column indices should be sequential, got: {indices}"
-            )
+            assert indices == list(range(len(indices))), f"Column indices should be sequential, got: {indices}"
         finally:
             Path(changeset_path).unlink()
             temp_dir.rmdir()
@@ -1202,9 +1156,7 @@ class TestCliFormatCompatibility:
             geom_col = entry["changes"][1]
             assert geom_col["column"] == 1
             geom_value = geom_col["new"]
-            assert isinstance(geom_value, str), (
-                f"Geometry should be base64 string, got {type(geom_value)}"
-            )
+            assert isinstance(geom_value, str), f"Geometry should be base64 string, got {type(geom_value)}"
             # Verify it's valid base64
             import base64
 
@@ -1227,9 +1179,7 @@ class TestCliFormatCompatibility:
             Path(changeset_path).unlink()
             temp_dir.rmdir()
 
-    def test_empty_changeset_produces_empty_list(
-        self, base_gpkg, identical_gpkg
-    ):
+    def test_empty_changeset_produces_empty_list(self, base_gpkg, identical_gpkg):
         """No changes = empty geodiff list (same as CLI)."""
         changeset_path, temp_dir = create_changeset(base_gpkg, identical_gpkg)
         try:
