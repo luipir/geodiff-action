@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -6,7 +7,13 @@ from actions import context, core
 
 import functions
 from geodiff import GeoDiffError, compute_diff, format_output
-from git_utils import GitError, find_repo_root, get_file_from_commit, get_previous_commit, has_file_in_commit
+from git_utils import (
+    GitError,
+    find_repo_root,
+    get_file_from_commit,
+    get_previous_commit,
+    has_file_in_commit,
+)
 
 # Configure git to trust all directories (needed for Docker containers)
 # This must be done early before any git operations
@@ -83,6 +90,7 @@ try:
 
         # Debug: show current working directory and file info
         import os
+
         cwd = os.getcwd()
         core.info(f"Current working directory: {cwd}")
         abs_base = Path(base_file).resolve()
@@ -98,6 +106,7 @@ try:
             # Additional debug info
             core.info("Checking if cwd is git repo...")
             from git_utils import is_git_repo
+
             core.info(f"is_git_repo(cwd): {is_git_repo(cwd)}")
             core.info(f"is_git_repo(parent): {is_git_repo(str(abs_base.parent))}")
             core.set_failed("Not a git repository. Cannot compare with previous commit.")
@@ -186,7 +195,6 @@ finally:
 
 
 # Outputs
-import os
 github_output = os.environ.get("GITHUB_OUTPUT", "NOT SET")
 core.info(f"GITHUB_OUTPUT env var: {github_output}")
 core.info(f"Setting outputs: has_changes={has_changes}, diff_result type={type(diff_result).__name__}")
@@ -210,7 +218,11 @@ if summary:
     diff_summary: dict = diff_result["summary"]
 
     inputs_table = ["<table><tr><th>Input</th><th>Value</th></tr>"]
-    for name, value in [("base_file", base_file), ("compare_file", compare_file), ("output_format", output_format)]:
+    for name, value in [
+        ("base_file", base_file),
+        ("compare_file", compare_file),
+        ("output_format", output_format),
+    ]:
         inputs_table.append(f"<tr><td>{name}</td><td>{value or '-'}</td></tr>")
     inputs_table.append("</table>")
 

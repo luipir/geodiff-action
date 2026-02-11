@@ -96,6 +96,8 @@ jobs:
 
 ## Output Format
 
+The JSON output follows the same format as the `geodiff diff --json` CLI from [pygeodiff](https://github.com/MerginMaps/geodiff). Each row change is a separate entry with per-column `old`/`new` values.
+
 ### JSON Output
 
 ```json
@@ -104,29 +106,165 @@ jobs:
   "compare_file": "compare.gpkg",
   "has_changes": true,
   "summary": {
-    "total_changes": 5,
+    "total_changes": 6,
     "inserts": 2,
     "updates": 2,
-    "deletes": 1
+    "deletes": 2
   },
   "changes": {
-    "geodiff": [...]
+    "geodiff": [
+      {
+        "table": "cities",
+        "type": "insert",
+        "changes": [
+          { "column": 0, "new": 6 },
+          { "column": 1, "new": "R1AAAeYQAAABAQAAAB04Z0..." },
+          { "column": 2, "new": "Bologna" },
+          { "column": 3, "new": "University city in Emilia-Romagna" },
+          { "column": 4, "new": 392203 },
+          { "column": 5, "new": 54.0 }
+        ]
+      },
+      {
+        "table": "cities",
+        "type": "delete",
+        "changes": [
+          { "column": 0, "old": 3 },
+          { "column": 1, "old": "R1AAAeYQAAABAQAAAH4dOG..." },
+          { "column": 2, "old": "Napoli" },
+          { "column": 3, "old": "Major city in southern Italy" },
+          { "column": 4, "old": 967068 },
+          { "column": 5, "old": 17.0 }
+        ]
+      },
+      {
+        "table": "cities",
+        "type": "update",
+        "changes": [
+          { "column": 0, "old": 1 },
+          { "column": 3, "old": "Capital of Italy", "new": "Capital of Italy - Updated 2024" },
+          { "column": 4, "old": 2870500, "new": 2873000 }
+        ]
+      }
+    ]
   }
 }
 ```
+
+#### Change entry structure
+
+Each entry in the `geodiff` array represents a single row change:
+
+| Key | Description |
+|-----|-------------|
+| `table` | Name of the affected table |
+| `type` | Operation: `insert`, `update`, or `delete` |
+| `changes` | Array of per-column dicts with `column` index and `old`/`new` values |
+
+Column-level rules by operation type:
+
+| Operation | `old` | `new` | Notes |
+|-----------|-------|-------|-------|
+| `insert` | absent | present | All columns included |
+| `delete` | present | absent | All columns included |
+| `update` | present | present | Only modified columns + primary key; unchanged columns are omitted |
+
+Binary values (e.g. geometry BLOBs) are serialized as **base64-encoded strings**.
 
 ### Summary Output
 
 ```
 GeoDiff Summary: base.gpkg vs compare.gpkg
   Has Changes:   Yes
-  Total Changes: 5
+  Total Changes: 6
   Inserts:       2
   Updates:       2
-  Deletes:       1
+  Deletes:       2
 
   Tables affected:
-    - my_layer: 5 change(s)
+    - cities: 6 change(s)
+```
+
+## Using the Output in Downstream Steps
+
+The `diff_result` output is a compact JSON string. You can parse it in subsequent workflow steps to filter changes, extract values, or decode geometries.
+
+### Parse the JSON output
+
+```yaml
+- name: Run GeoDiff
+  id: geodiff
+  uses: geobeyond/geodiff-action@v1
+  with:
+    base_file: 'previous.gpkg'
+    compare_file: 'current.gpkg'
+
+- name: Process changes
+  if: steps.geodiff.outputs.has_changes == 'true'
+  run: |
+    echo '${{ steps.geodiff.outputs.diff_result }}' | python3 -c "
+    import json, sys
+    result = json.load(sys.stdin)
+    for entry in result['changes']['geodiff']:
+        print(f\"{entry['type'].upper()} in {entry['table']}\")
+        for col in entry['changes']:
+            old = col.get('old', '')
+            new = col.get('new', '')
+            print(f\"  column {col['column']}: {old} -> {new}\")
+    "
+```
+
+### Decode geometry columns
+
+Geometry values are stored as GeoPackage binary (GP header + WKB) encoded in base64. To decode them downstream into usable coordinates:
+
+```yaml
+- name: Extract geometries from changes
+  if: steps.geodiff.outputs.has_changes == 'true'
+  run: |
+    echo '${{ steps.geodiff.outputs.diff_result }}' | python3 -c "
+    import json, sys, base64, struct
+
+    def decode_gpkg_point(b64_value):
+        \"\"\"Decode a base64 GeoPackage point geometry to (lon, lat).\"\"\"
+        raw = base64.b64decode(b64_value)
+        # GeoPackage binary header: 2 bytes magic ('GP') + 1 byte version
+        # + 1 byte flags + 4 bytes SRS ID = 8 bytes
+        # Followed by WKB: 1 byte order + 4 bytes type + 8 bytes X + 8 bytes Y
+        header_size = 8
+        wkb = raw[header_size:]
+        byte_order = wkb[0]  # 1 = little-endian
+        fmt = '<' if byte_order == 1 else '>'
+        geom_type = struct.unpack(f'{fmt}I', wkb[1:5])[0]
+        if geom_type != 1:  # 1 = Point
+            return None
+        x, y = struct.unpack(f'{fmt}dd', wkb[5:21])
+        return (x, y)
+
+    result = json.load(sys.stdin)
+    for entry in result['changes']['geodiff']:
+        # Find the geometry column (typically column index 1 in GeoPackage)
+        for col in entry['changes']:
+            val = col.get('new') or col.get('old')
+            if isinstance(val, str) and val.startswith('R1'):  # GP magic in base64
+                coords = decode_gpkg_point(val)
+                if coords:
+                    print(f\"{entry['type']} in {entry['table']}: lon={coords[0]:.4f}, lat={coords[1]:.4f}\")
+    "
+```
+
+### Filter changes by type or table
+
+```yaml
+- name: Count inserts per table
+  if: steps.geodiff.outputs.has_changes == 'true'
+  run: |
+    echo '${{ steps.geodiff.outputs.diff_result }}' | jq '
+      .changes.geodiff
+      | map(select(.type == "insert"))
+      | group_by(.table)
+      | map({table: .[0].table, count: length})
+    '
 ```
 
 ## Supported File Formats

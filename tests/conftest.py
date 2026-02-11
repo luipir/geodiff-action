@@ -393,6 +393,272 @@ def single_feature_gpkg(temp_dir):
     )
 
 
+def create_anncsu_geopackage(
+    filepath: str,
+    table_name: str = "anncsu_addresses",
+    features: list[dict] | None = None,
+    description: str = "ANNCSU-like GeoPackage",
+) -> str:
+    """
+    Create a GeoPackage mimicking the ANNCSU geocoded address schema.
+
+    This reproduces the scenario from issue #2: a complex table with many
+    TEXT/INTEGER columns, similar to real-world Italian address databases.
+
+    Args:
+        filepath: Path where to create the GeoPackage.
+        table_name: Name of the feature table.
+        features: List of feature dicts with ANNCSU-like keys.
+        description: Description for the GeoPackage contents.
+
+    Returns:
+        Path to the created GeoPackage.
+    """
+    if features is None:
+        features = []
+
+    conn = sqlite3.connect(filepath)
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS gpkg_spatial_ref_sys (
+            srs_name TEXT NOT NULL,
+            srs_id INTEGER NOT NULL PRIMARY KEY,
+            organization TEXT NOT NULL,
+            organization_coordsys_id INTEGER NOT NULL,
+            definition TEXT NOT NULL,
+            description TEXT
+        );
+        CREATE TABLE IF NOT EXISTS gpkg_contents (
+            table_name TEXT NOT NULL PRIMARY KEY,
+            data_type TEXT NOT NULL,
+            identifier TEXT UNIQUE,
+            description TEXT DEFAULT '',
+            last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE,
+            srs_id INTEGER,
+            CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
+        );
+        CREATE TABLE IF NOT EXISTS gpkg_geometry_columns (
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL,
+            geometry_type_name TEXT NOT NULL,
+            srs_id INTEGER NOT NULL,
+            z TINYINT NOT NULL,
+            m TINYINT NOT NULL,
+            CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name),
+            CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name),
+            CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
+        );
+        INSERT OR IGNORE INTO gpkg_spatial_ref_sys (srs_name, srs_id, organization, organization_coordsys_id, definition, description)
+        VALUES (
+            'WGS 84 geodetic', 4326, 'EPSG', 4326,
+            'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]',
+            'longitude/latitude coordinates in decimal degrees on the WGS 84 spheroid'
+        );
+        INSERT OR IGNORE INTO gpkg_spatial_ref_sys (srs_name, srs_id, organization, organization_coordsys_id, definition)
+        VALUES ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined');
+        INSERT OR IGNORE INTO gpkg_spatial_ref_sys (srs_name, srs_id, organization, organization_coordsys_id, definition)
+        VALUES ('Undefined geographic SRS', 0, 'NONE', 0, 'undefined');
+    """)
+
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            fid INTEGER PRIMARY KEY AUTOINCREMENT,
+            geom BLOB,
+            cod_reg TEXT,
+            cod_com TEXT,
+            denominazione TEXT,
+            tipo_via TEXT,
+            indirizzo TEXT,
+            civico TEXT,
+            cap TEXT,
+            localita TEXT,
+            stato INTEGER
+        )
+    """)
+
+    if features:
+        min_x = min(f.get("lon", 0) for f in features)
+        max_x = max(f.get("lon", 0) for f in features)
+        min_y = min(f.get("lat", 0) for f in features)
+        max_y = max(f.get("lat", 0) for f in features)
+    else:
+        min_x = max_x = min_y = max_y = None
+
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO gpkg_contents (table_name, data_type, identifier, description, srs_id, min_x, min_y, max_x, max_y)
+        VALUES (?, 'features', ?, ?, 4326, ?, ?, ?, ?)
+        """,
+        (table_name, table_name, description, min_x, min_y, max_x, max_y),
+    )
+
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m)
+        VALUES (?, 'geom', 'POINT', 4326, 0, 0)
+        """,
+        (table_name,),
+    )
+
+    for feature in features:
+        fid = feature.get("id")
+        lon = feature.get("lon", 0.0)
+        lat = feature.get("lat", 0.0)
+        gpkg_geom = create_gpkg_point_geometry(lon, lat)
+
+        if fid is not None:
+            cursor.execute(
+                f"INSERT INTO {table_name} (fid, geom, cod_reg, cod_com, denominazione, tipo_via, indirizzo, civico, cap, localita, stato) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    fid,
+                    gpkg_geom,
+                    feature.get("cod_reg"),
+                    feature.get("cod_com"),
+                    feature.get("denominazione"),
+                    feature.get("tipo_via"),
+                    feature.get("indirizzo"),
+                    feature.get("civico"),
+                    feature.get("cap"),
+                    feature.get("localita"),
+                    feature.get("stato"),
+                ),
+            )
+        else:
+            cursor.execute(
+                f"INSERT INTO {table_name} (geom, cod_reg, cod_com, denominazione, tipo_via, indirizzo, civico, cap, localita, stato) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    gpkg_geom,
+                    feature.get("cod_reg"),
+                    feature.get("cod_com"),
+                    feature.get("denominazione"),
+                    feature.get("tipo_via"),
+                    feature.get("indirizzo"),
+                    feature.get("civico"),
+                    feature.get("cap"),
+                    feature.get("localita"),
+                    feature.get("stato"),
+                ),
+            )
+
+    conn.commit()
+    conn.close()
+
+    return filepath
+
+
+# Sample ANNCSU-like address data (Italian addresses)
+ANNCSU_ADDRESSES = [
+    {
+        "id": 1,
+        "lon": 12.4964,
+        "lat": 41.9028,
+        "cod_reg": "12",
+        "cod_com": "H501",
+        "denominazione": "Roma",
+        "tipo_via": "Via",
+        "indirizzo": "Via del Corso",
+        "civico": "1",
+        "cap": "00186",
+        "localita": "Centro Storico",
+        "stato": 1,
+    },
+    {
+        "id": 2,
+        "lon": 9.1900,
+        "lat": 45.4642,
+        "cod_reg": "03",
+        "cod_com": "F205",
+        "denominazione": "Milano",
+        "tipo_via": "Piazza",
+        "indirizzo": "Piazza del Duomo",
+        "civico": "12",
+        "cap": "20122",
+        "localita": "Centro",
+        "stato": 1,
+    },
+    {
+        "id": 3,
+        "lon": 14.2681,
+        "lat": 40.8518,
+        "cod_reg": "15",
+        "cod_com": "F839",
+        "denominazione": "Napoli",
+        "tipo_via": "Via",
+        "indirizzo": "Via Toledo",
+        "civico": "45",
+        "cap": "80134",
+        "localita": "San Ferdinando",
+        "stato": 1,
+    },
+    {
+        "id": 4,
+        "lon": 11.2558,
+        "lat": 43.7696,
+        "cod_reg": "09",
+        "cod_com": "D612",
+        "denominazione": "Firenze",
+        "tipo_via": "Lungarno",
+        "indirizzo": "Lungarno della Zecca Vecchia",
+        "civico": "8",
+        "cap": "50122",
+        "localita": "Santa Croce",
+        "stato": 1,
+    },
+    {
+        "id": 5,
+        "lon": 11.3426,
+        "lat": 44.4949,
+        "cod_reg": "08",
+        "cod_com": "A944",
+        "denominazione": "Bologna",
+        "tipo_via": "Via",
+        "indirizzo": "Via Indipendenza",
+        "civico": "22",
+        "cap": "40121",
+        "localita": "Centro",
+        "stato": 1,
+    },
+]
+
+
+@pytest.fixture
+def anncsu_like_gpkg(temp_dir):
+    """
+    Create a GeoPackage mimicking the ANNCSU geocoded address schema with records.
+
+    Reproduces issue #2 scenario: complex schema with multiple TEXT/INTEGER columns
+    and populated data (5 Italian addresses).
+    """
+    filepath = temp_dir / "anncsu_geocoded.gpkg"
+    return create_anncsu_geopackage(
+        str(filepath),
+        table_name="anncsu_addresses",
+        features=ANNCSU_ADDRESSES,
+        description="ANNCSU geocoded addresses - populated",
+    )
+
+
+@pytest.fixture
+def anncsu_like_empty_gpkg(temp_dir):
+    """
+    Create an empty GeoPackage with the ANNCSU schema (no records).
+
+    Reproduces issue #2 scenario: the 'previous' DB has the same schema
+    but zero records.
+    """
+    filepath = temp_dir / "anncsu_empty.gpkg"
+    return create_anncsu_geopackage(
+        str(filepath),
+        table_name="anncsu_addresses",
+        features=[],
+        description="ANNCSU geocoded addresses - empty",
+    )
+
+
 @pytest.fixture
 def large_gpkg(temp_dir):
     """
