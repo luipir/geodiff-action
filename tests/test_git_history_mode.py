@@ -5,16 +5,20 @@ compares the current version with the previous git commit version.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-import sys
-
 sys.path.insert(0, "src")
 sys.path.insert(0, "tests")
 
-from conftest import ITALIAN_CITIES_BASE, ITALIAN_CITIES_MODIFIED, create_geopackage
+from conftest import (
+    ITALIAN_CITIES_BASE,
+    ITALIAN_CITIES_MODIFIED,
+    create_geopackage,
+)
+
 from geodiff import compute_diff
 from git_utils import (
     GitError,
@@ -93,7 +97,12 @@ def git_repo_with_gpkg(tmp_path):
 
     subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
     subprocess.run(
-        ["git", "commit", "-m", "Update cities: add Bologna/Venezia, remove Napoli/Firenze, update Roma/Torino"],
+        [
+            "git",
+            "commit",
+            "-m",
+            "Update cities: add Bologna/Venezia, remove Napoli/Firenze, update Roma/Torino",
+        ],
         cwd=repo_dir,
         capture_output=True,
         check=True,
@@ -249,17 +258,12 @@ class TestGitHistoryModeChangesets:
         try:
             result = compute_diff(prev_file, str(current_file))
 
-            # Verify cities table is in changeset
-            changes = result["changes"]["geodiff"]
-            assert len(changes) > 0
+            # Verify cities table is in changeset (flat list, one entry per row)
+            entries = result["changes"]["geodiff"]
+            assert len(entries) > 0
 
-            cities_table = None
-            for table_change in changes:
-                if table_change.get("table") == "cities":
-                    cities_table = table_change
-                    break
-
-            assert cities_table is not None, "Expected 'cities' table in changeset"
+            tables_found = {e.get("table") for e in entries}
+            assert "cities" in tables_found, f"Expected 'cities' table in changeset, found: {tables_found}"
 
         finally:
             Path(prev_file).unlink()
@@ -275,21 +279,11 @@ class TestGitHistoryModeChangesets:
         try:
             result = compute_diff(prev_file, str(current_file))
 
-            # Count change types from changeset
-            changes = result["changes"]["geodiff"]
-            inserts = 0
-            updates = 0
-            deletes = 0
-
-            for table_change in changes:
-                for change in table_change.get("changes", []):
-                    change_type = change.get("type")
-                    if change_type == "insert":
-                        inserts += 1
-                    elif change_type == "update":
-                        updates += 1
-                    elif change_type == "delete":
-                        deletes += 1
+            # Count change types from changeset (flat list, one entry per row)
+            entries = result["changes"]["geodiff"]
+            inserts = sum(1 for e in entries if e["type"] == "insert")
+            updates = sum(1 for e in entries if e["type"] == "update")
+            deletes = sum(1 for e in entries if e["type"] == "delete")
 
             # Verify counts match expected
             assert inserts == 2, f"Expected 2 inserts (Bologna, Venezia), got {inserts}"

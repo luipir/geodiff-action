@@ -1,5 +1,6 @@
 import os
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -7,7 +8,13 @@ from actions import context, core
 
 import functions
 from geodiff import GeoDiffError, compute_diff, format_output
-from git_utils import GitError, find_repo_root, get_file_from_commit, get_previous_commit, has_file_in_commit
+from git_utils import (
+    GitError,
+    find_repo_root,
+    get_file_from_commit,
+    get_previous_commit,
+    has_file_in_commit,
+)
 
 # Configure git to trust all directories (needed for Docker containers)
 # This must be done early before any git operations
@@ -210,7 +217,11 @@ if summary:
     diff_summary: dict = diff_result["summary"]
 
     inputs_table = ["<table><tr><th>Input</th><th>Value</th></tr>"]
-    for name, value in [("base_file", base_file), ("compare_file", compare_file), ("output_format", output_format)]:
+    for name, value in [
+        ("base_file", base_file),
+        ("compare_file", compare_file),
+        ("output_format", output_format),
+    ]:
         inputs_table.append(f"<tr><td>{name}</td><td>{value or '-'}</td></tr>")
     inputs_table.append("</table>")
 

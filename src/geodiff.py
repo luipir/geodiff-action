@@ -1,5 +1,6 @@
 """GeoDiff - Core logic for geospatial file comparison using pygeodiff."""
 
+import base64
 import json
 import tempfile
 from pathlib import Path
@@ -74,26 +75,107 @@ def create_changeset(base_file: str, compare_file: str) -> tuple[str, Path]:
     return str(changeset_path), temp_dir
 
 
+def _serialize_value(value: Any) -> Any:
+    """
+    Serialize a pygeodiff changeset value to a JSON-compatible type.
+
+    Args:
+        value: A value from ChangesetEntry.new_values or old_values.
+
+    Returns:
+        JSON-serializable value: bytes→base64 string, UndefinedValue→None,
+        primitives (int, float, str, None) pass through unchanged.
+    """
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    if type(value).__name__ == "UndefinedValue":
+        return None
+    return value
+
+
+def _build_column_changes(entry: Any, change_type: str) -> list[dict[str, Any]]:
+    """
+    Build column-level change details from a ChangesetEntry.
+
+    Produces the same format as the ``geodiff diff --json`` CLI:
+    each column is represented as ``{"column": idx, "old": ..., "new": ...}``.
+
+    For INSERT only ``new`` is present, for DELETE only ``old``,
+    and for UPDATE both ``old`` and ``new`` appear on modified columns
+    while the primary-key column has only ``old``.
+    UndefinedValue columns (unchanged in UPDATE) are omitted.
+
+    Args:
+        entry: A pygeodiff ChangesetEntry object.
+        change_type: One of "insert", "update", "delete".
+
+    Returns:
+        List of per-column change dicts.
+    """
+    columns: list[dict[str, Any]] = []
+
+    if change_type == "insert":
+        for idx, val in enumerate(entry.new_values):
+            col: dict[str, Any] = {"column": idx}
+            col["new"] = _serialize_value(val)
+            columns.append(col)
+
+    elif change_type == "delete":
+        for idx, val in enumerate(entry.old_values):
+            col = {"column": idx}
+            col["old"] = _serialize_value(val)
+            columns.append(col)
+
+    elif change_type == "update":
+        old_vals = entry.old_values
+        new_vals = entry.new_values
+        for idx in range(len(old_vals)):
+            old_v = old_vals[idx]
+            new_v = new_vals[idx]
+            old_undef = type(old_v).__name__ == "UndefinedValue"
+            new_undef = type(new_v).__name__ == "UndefinedValue"
+            if old_undef and new_undef:
+                continue  # Column unchanged, skip
+            col = {"column": idx}
+            if not old_undef:
+                col["old"] = _serialize_value(old_v)
+            if not new_undef:
+                col["new"] = _serialize_value(new_v)
+            columns.append(col)
+
+    return columns
+
+
 def list_changes_json(changeset_path: str) -> dict[str, Any]:
     """
     Export changes from a binary diff file to JSON format.
 
     Uses read_changeset to iterate through changes and build a structured
-    representation compatible with the expected format.
+    representation compatible with the ``geodiff diff --json`` CLI output.
+
+    Each row change is a separate entry in the ``geodiff`` array with
+    ``table``, ``type``, and ``changes`` (per-column old/new values).
 
     Args:
         changeset_path: Path to the changeset diff file.
 
     Returns:
-        Dictionary containing the changes in format:
-        {
-            "geodiff": [
-                {
-                    "table": "table_name",
-                    "changes": [{"type": "insert"}, {"type": "update"}, ...]
-                }
-            ]
-        }
+        Dictionary compatible with ``geodiff diff --json`` CLI format::
+
+            {
+                "geodiff": [
+                    {
+                        "table": "table_name",
+                        "type": "insert",
+                        "changes": [
+                            {"column": 0, "new": 1},
+                            {"column": 1, "new": "value"},
+                            ...
+                        ]
+                    },
+                    ...
+                ]
+            }
 
     Raises:
         GeoDiffError: If listing changes fails.
@@ -102,8 +184,7 @@ def list_changes_json(changeset_path: str) -> dict[str, Any]:
         geodiff = pygeodiff.GeoDiff()
         reader = geodiff.read_changeset(changeset_path)
 
-        # Group changes by table
-        tables_changes: dict[str, list[dict[str, str]]] = {}
+        entries: list[dict[str, Any]] = []
 
         for entry in reader:
             table_name = entry.table.name
@@ -119,15 +200,17 @@ def list_changes_json(changeset_path: str) -> dict[str, Any]:
             else:
                 continue  # Skip unknown operations
 
-            if table_name not in tables_changes:
-                tables_changes[table_name] = []
+            column_changes = _build_column_changes(entry, change_type)
 
-            tables_changes[table_name].append({"type": change_type})
+            entries.append(
+                {
+                    "table": table_name,
+                    "type": change_type,
+                    "changes": column_changes,
+                }
+            )
 
-        # Build result in expected format
-        result = {"geodiff": [{"table": table, "changes": changes} for table, changes in tables_changes.items()]}
-
-        return result
+        return {"geodiff": entries}
 
     except pygeodiff.GeoDiffLibError as e:
         raise GeoDiffError(f"Failed to list changes: {e}") from e
@@ -199,23 +282,22 @@ def compute_diff(base_file: str, compare_file: str) -> dict[str, Any]:
         else:
             changes_detail = {"geodiff": []}
 
-        # Parse changes to get summary
-        geodiff_changes = changes_detail.get("geodiff", [])
+        # Parse changes to get summary (flat list, one entry per row change)
+        geodiff_entries = changes_detail.get("geodiff", [])
 
         # Count by operation type
         insert_count = 0
         update_count = 0
         delete_count = 0
 
-        for table_changes in geodiff_changes:
-            for change in table_changes.get("changes", []):
-                op = change.get("type", "")
-                if op == "insert":
-                    insert_count += 1
-                elif op == "update":
-                    update_count += 1
-                elif op == "delete":
-                    delete_count += 1
+        for entry in geodiff_entries:
+            op = entry.get("type", "")
+            if op == "insert":
+                insert_count += 1
+            elif op == "update":
+                update_count += 1
+            elif op == "delete":
+                delete_count += 1
 
         return {
             "base_file": str(base_path),
@@ -261,14 +343,16 @@ def format_output(diff_result: dict[str, Any], output_format: str = "json") -> s
             f"  Deletes:       {summary['deletes']}",
         ]
 
-        # Add table details if available
-        geodiff_changes = diff_result.get("changes", {}).get("geodiff", [])
-        if geodiff_changes:
+        # Add table details if available (flat list, group by table name)
+        geodiff_entries = diff_result.get("changes", {}).get("geodiff", [])
+        if geodiff_entries:
+            table_counts: dict[str, int] = {}
+            for entry in geodiff_entries:
+                tname = entry.get("table", "unknown")
+                table_counts[tname] = table_counts.get(tname, 0) + 1
             lines.append("\n  Tables affected:")
-            for table in geodiff_changes:
-                table_name = table.get("table", "unknown")
-                table_changes = len(table.get("changes", []))
-                lines.append(f"    - {table_name}: {table_changes} change(s)")
+            for table_name, count in table_counts.items():
+                lines.append(f"    - {table_name}: {count} change(s)")
 
         return "\n".join(lines)
 

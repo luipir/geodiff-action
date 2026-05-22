@@ -9,12 +9,11 @@ The test fixtures use real geographic coordinates for Italian cities:
 """
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-import sys
 
 sys.path.insert(0, "src")
 
@@ -29,7 +28,6 @@ from geodiff import (
     list_changes_json,
     validate_file,
 )
-
 
 # Tests for validate_file
 
@@ -646,18 +644,29 @@ class TestChangeTypeCounting:
             """)
             conn.close()
 
-        # Mock list_changes_json to return specific change types
+        # Mock list_changes_json to return CLI-compatible flat format
         mock_changes = {
             "geodiff": [
                 {
                     "table": "test_layer",
-                    "changes": [
-                        {"type": "insert"},
-                        {"type": "insert"},
-                        {"type": "update"},
-                        {"type": "delete"},
-                    ],
-                }
+                    "type": "insert",
+                    "changes": [{"column": 0, "new": 1}],
+                },
+                {
+                    "table": "test_layer",
+                    "type": "insert",
+                    "changes": [{"column": 0, "new": 2}],
+                },
+                {
+                    "table": "test_layer",
+                    "type": "update",
+                    "changes": [{"column": 0, "old": 1, "new": 3}],
+                },
+                {
+                    "table": "test_layer",
+                    "type": "delete",
+                    "changes": [{"column": 0, "old": 4}],
+                },
             ]
         }
 
@@ -690,7 +699,7 @@ class TestFormatOutputTableDetails:
         """Test that summary shows individual table names."""
         _ = compute_diff(base_gpkg, modified_gpkg)
 
-        # Manually construct a result with known table data
+        # Manually construct a result with known table data (CLI flat format)
         result_with_tables = {
             "base_file": "base.gpkg",
             "compare_file": "compare.gpkg",
@@ -703,8 +712,21 @@ class TestFormatOutputTableDetails:
             },
             "changes": {
                 "geodiff": [
-                    {"table": "test_layer", "changes": [{"type": "insert"}, {"type": "update"}]},
-                    {"table": "another_layer", "changes": [{"type": "delete"}]},
+                    {
+                        "table": "test_layer",
+                        "type": "insert",
+                        "changes": [{"column": 0, "new": 1}],
+                    },
+                    {
+                        "table": "test_layer",
+                        "type": "update",
+                        "changes": [{"column": 0, "old": 1, "new": 2}],
+                    },
+                    {
+                        "table": "another_layer",
+                        "type": "delete",
+                        "changes": [{"column": 0, "old": 3}],
+                    },
                 ]
             },
         }
@@ -723,54 +745,38 @@ class TestItalianCitiesChangesets:
     """Tests verifying exact changeset details with Italian cities data."""
 
     def test_changeset_contains_cities_table(self, base_gpkg, modified_gpkg):
-        """Test that changeset includes the 'cities' table."""
+        """Test that changeset includes entries for the 'cities' table."""
         result = compute_diff(base_gpkg, modified_gpkg)
 
         changes = result["changes"]
         assert "geodiff" in changes
         assert len(changes["geodiff"]) > 0
 
-        # Find the cities table in changes
-        cities_table = None
-        for table_change in changes["geodiff"]:
-            if table_change.get("table") == "cities":
-                cities_table = table_change
-                break
-
-        assert cities_table is not None, "Expected 'cities' table in changeset"
-        assert "changes" in cities_table
+        # At least one entry should reference the cities table
+        tables_found = {entry.get("table") for entry in changes["geodiff"]}
+        assert "cities" in tables_found, f"Expected 'cities' table in changeset, found: {tables_found}"
 
     def test_changeset_detail_inserts(self, empty_gpkg, base_gpkg):
         """Test that inserting 5 Italian cities produces correct changeset."""
         result = compute_diff(empty_gpkg, base_gpkg)
 
-        changes = result["changes"]["geodiff"]
-        assert len(changes) > 0
+        entries = result["changes"]["geodiff"]
+        assert len(entries) == 5
 
-        # All changes should be inserts
-        total_inserts = 0
-        for table_change in changes:
-            for change in table_change.get("changes", []):
-                assert change.get("type") == "insert", f"Expected insert, got {change.get('type')}"
-                total_inserts += 1
-
-        assert total_inserts == 5, f"Expected 5 inserts, got {total_inserts}"
+        # All entries should be inserts
+        for entry in entries:
+            assert entry["type"] == "insert", f"Expected insert, got {entry['type']}"
 
     def test_changeset_detail_deletes(self, base_gpkg, empty_gpkg):
         """Test that deleting 5 Italian cities produces correct changeset."""
         result = compute_diff(base_gpkg, empty_gpkg)
 
-        changes = result["changes"]["geodiff"]
-        assert len(changes) > 0
+        entries = result["changes"]["geodiff"]
+        assert len(entries) == 5
 
-        # All changes should be deletes
-        total_deletes = 0
-        for table_change in changes:
-            for change in table_change.get("changes", []):
-                assert change.get("type") == "delete", f"Expected delete, got {change.get('type')}"
-                total_deletes += 1
-
-        assert total_deletes == 5, f"Expected 5 deletes, got {total_deletes}"
+        # All entries should be deletes
+        for entry in entries:
+            assert entry["type"] == "delete", f"Expected delete, got {entry['type']}"
 
     def test_changeset_detail_mixed_changes(self, base_gpkg, modified_gpkg):
         """Test that mixed changes produce correct changeset types.
@@ -782,23 +788,13 @@ class TestItalianCitiesChangesets:
         """
         result = compute_diff(base_gpkg, modified_gpkg)
 
-        changes = result["changes"]["geodiff"]
-        assert len(changes) > 0
+        entries = result["changes"]["geodiff"]
+        assert len(entries) == 6
 
         # Count change types
-        inserts = 0
-        updates = 0
-        deletes = 0
-
-        for table_change in changes:
-            for change in table_change.get("changes", []):
-                change_type = change.get("type")
-                if change_type == "insert":
-                    inserts += 1
-                elif change_type == "update":
-                    updates += 1
-                elif change_type == "delete":
-                    deletes += 1
+        inserts = sum(1 for e in entries if e["type"] == "insert")
+        updates = sum(1 for e in entries if e["type"] == "update")
+        deletes = sum(1 for e in entries if e["type"] == "delete")
 
         assert inserts == 2, f"Expected 2 inserts, got {inserts}"
         assert updates == 2, f"Expected 2 updates, got {updates}"
@@ -903,3 +899,314 @@ class TestIntegration:
         # Should validate without error
         path = validate_file(str(db_file))
         assert path.suffix == ".db"
+
+
+# Tests for issue #2: changes detail values missing
+
+
+class TestIssue2_ChangesEmpty:
+    """Tests reproducing issue #2: geodiff action does not show change details.
+
+    The issue reports that when comparing a GeoPackage with records against
+    an empty one (same schema, no records), the changes section only contains
+    operation types (e.g. {"type": "insert"}) but no actual column values.
+
+    These tests verify that list_changes_json() returns entries with
+    column-level old/new values in the ``geodiff diff --json`` CLI format.
+    """
+
+    def test_changes_contain_values_empty_to_populated(self, anncsu_like_empty_gpkg, anncsu_like_gpkg):
+        """Issue #2: comparing empty DB (previous) to populated DB (current) must show values.
+
+        This is the exact scenario reported: a previous DB with zero records
+        compared to a current DB with records. Each insert entry must contain
+        per-column "new" values, not just {"type": "insert"}.
+        """
+        result = compute_diff(anncsu_like_empty_gpkg, anncsu_like_gpkg)
+
+        assert result["has_changes"] is True
+        assert result["summary"]["total_changes"] == 5
+        assert result["summary"]["inserts"] == 5
+
+        entries = result["changes"]["geodiff"]
+        assert len(entries) == 5
+
+        for entry in entries:
+            assert entry["type"] == "insert"
+            assert "changes" in entry
+            assert len(entry["changes"]) > 0, f"Issue #2: insert entry has empty column changes: {entry}"
+            for col in entry["changes"]:
+                assert "column" in col
+                assert "new" in col, f"Issue #2: insert column missing 'new' value: {col}"
+
+    def test_changes_contain_values_populated_to_empty(self, anncsu_like_gpkg, anncsu_like_empty_gpkg):
+        """Deleting all records must show per-column old values in each entry."""
+        result = compute_diff(anncsu_like_gpkg, anncsu_like_empty_gpkg)
+
+        assert result["has_changes"] is True
+        assert result["summary"]["deletes"] == 5
+
+        entries = result["changes"]["geodiff"]
+        for entry in entries:
+            assert entry["type"] == "delete"
+            for col in entry["changes"]:
+                assert "column" in col
+                assert "old" in col, f"Delete column missing 'old' value: {col}"
+
+    def test_changes_contain_values_with_updates(self, base_gpkg, modified_gpkg):
+        """Update entries must have per-column old/new values for modified columns."""
+        result = compute_diff(base_gpkg, modified_gpkg)
+
+        entries = result["changes"]["geodiff"]
+        update_entries = [e for e in entries if e["type"] == "update"]
+
+        assert len(update_entries) == 2, f"Expected 2 updates, got {len(update_entries)}"
+
+        for entry in update_entries:
+            # At least some columns should have both old and new
+            cols_with_old = [c for c in entry["changes"] if "old" in c]
+            cols_with_new = [c for c in entry["changes"] if "new" in c]
+            assert len(cols_with_old) > 0, f"Update entry has no 'old' values: {entry}"
+            assert len(cols_with_new) > 0, f"Update entry has no 'new' values: {entry}"
+
+    def test_changes_values_match_feature_data(self, anncsu_like_empty_gpkg, anncsu_like_gpkg):
+        """Inserted values must match the actual feature data (e.g. address names)."""
+        result = compute_diff(anncsu_like_empty_gpkg, anncsu_like_gpkg)
+
+        entries = result["changes"]["geodiff"]
+        assert len(entries) == 5
+
+        # Collect all "new" string values across all insert entries
+        all_new_strings = []
+        for entry in entries:
+            for col in entry["changes"]:
+                val = col.get("new")
+                if isinstance(val, str):
+                    all_new_strings.append(val)
+
+        assert any("Roma" in v for v in all_new_strings), f"Expected 'Roma' in inserted values, got: {all_new_strings}"
+        assert any("Via del Corso" in v for v in all_new_strings), (
+            f"Expected 'Via del Corso' in inserted values, got: {all_new_strings}"
+        )
+
+
+# Tests for compatibility with ``geodiff diff --json`` CLI format
+
+
+class TestCliFormatCompatibility:
+    """Verify that list_changes_json() output is compatible with the
+    ``geodiff diff --json`` CLI format.
+
+    CLI format reference (from issue #2 attachment diff.json):
+
+        {
+            "geodiff": [
+                {
+                    "table": "table_name",
+                    "type": "insert" | "update" | "delete",
+                    "changes": [
+                        {"column": 0, "new": <value>},
+                        {"column": 1, "old": <value>, "new": <value>},
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+
+    Each row change is a separate entry in the flat ``geodiff`` array.
+    Column changes use ``{"column": idx, "old": ..., "new": ...}`` dicts.
+    """
+
+    def test_top_level_structure(self, empty_gpkg, base_gpkg):
+        """Output has a single 'geodiff' key containing a list."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            assert list(result.keys()) == ["geodiff"]
+            assert isinstance(result["geodiff"], list)
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_flat_list_one_entry_per_row(self, empty_gpkg, base_gpkg):
+        """Each row change is a separate entry (not grouped by table)."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            # 5 cities inserted = 5 entries
+            assert len(result["geodiff"]) == 5
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_entry_keys_match_cli(self, empty_gpkg, base_gpkg):
+        """Each entry has exactly 'table', 'type', and 'changes' keys."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            for entry in result["geodiff"]:
+                assert set(entry.keys()) == {"table", "type", "changes"}, (
+                    f"Entry keys {set(entry.keys())} don't match CLI format"
+                )
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_type_at_entry_level(self, base_gpkg, modified_gpkg):
+        """'type' is at the entry level (not nested inside changes)."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            types_found = {e["type"] for e in result["geodiff"]}
+            assert types_found == {"insert", "update", "delete"}
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_column_changes_structure_insert(self, empty_gpkg, base_gpkg):
+        """INSERT: changes is a list of {"column": idx, "new": value} dicts."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            for entry in result["geodiff"]:
+                assert entry["type"] == "insert"
+                for col in entry["changes"]:
+                    assert "column" in col, f"Missing 'column' key: {col}"
+                    assert isinstance(col["column"], int)
+                    assert "new" in col, f"INSERT column missing 'new': {col}"
+                    assert "old" not in col, f"INSERT column should not have 'old': {col}"
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_column_changes_structure_delete(self, base_gpkg, empty_gpkg):
+        """DELETE: changes is a list of {"column": idx, "old": value} dicts."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, empty_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            for entry in result["geodiff"]:
+                assert entry["type"] == "delete"
+                for col in entry["changes"]:
+                    assert "column" in col, f"Missing 'column' key: {col}"
+                    assert isinstance(col["column"], int)
+                    assert "old" in col, f"DELETE column missing 'old': {col}"
+                    assert "new" not in col, f"DELETE column should not have 'new': {col}"
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_column_changes_structure_update(self, base_gpkg, modified_gpkg):
+        """UPDATE: only modified columns present; pkey has 'old', changed cols have 'old'+'new'."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            update_entries = [e for e in result["geodiff"] if e["type"] == "update"]
+            assert len(update_entries) > 0
+
+            for entry in update_entries:
+                # Unchanged columns (UndefinedValue) should be omitted
+                for col in entry["changes"]:
+                    assert "column" in col
+                    assert isinstance(col["column"], int)
+                    # Each column must have at least 'old' or 'new'
+                    assert "old" in col or "new" in col, f"UPDATE column has neither 'old' nor 'new': {col}"
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_update_omits_unchanged_columns(self, base_gpkg, modified_gpkg):
+        """UPDATE entries should NOT include columns that didn't change."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            update_entries = [e for e in result["geodiff"] if e["type"] == "update"]
+
+            for entry in update_entries:
+                # cities table has 6 columns (fid, geom, name, description, population, elevation_m)
+                # Updates only change description + population, plus pkey (fid) is included
+                # So we should have fewer than 6 column entries
+                assert len(entry["changes"]) < 6, (
+                    f"UPDATE should omit unchanged columns, got {len(entry['changes'])} "
+                    f"columns out of 6: {entry['changes']}"
+                )
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_column_indices_are_sequential(self, empty_gpkg, base_gpkg):
+        """Column indices in INSERT/DELETE should cover all columns sequentially."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            entry = result["geodiff"][0]
+            indices = [c["column"] for c in entry["changes"]]
+            assert indices == list(range(len(indices))), f"Column indices should be sequential, got: {indices}"
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_blob_geometry_serialized_as_base64(self, empty_gpkg, base_gpkg):
+        """Geometry (BLOB) columns should be serialized as base64 strings."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            entry = result["geodiff"][0]
+            # column 1 is 'geom' in our test fixture
+            geom_col = entry["changes"][1]
+            assert geom_col["column"] == 1
+            geom_value = geom_col["new"]
+            assert isinstance(geom_value, str), f"Geometry should be base64 string, got {type(geom_value)}"
+            # Verify it's valid base64
+            import base64
+
+            decoded = base64.b64decode(geom_value)
+            assert len(decoded) > 0
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_json_serializable(self, base_gpkg, modified_gpkg):
+        """The entire output must be JSON-serializable (no bytes, no special objects)."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, modified_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            # This would raise TypeError if there are non-serializable values
+            serialized = json.dumps(result)
+            roundtrip = json.loads(serialized)
+            assert roundtrip == result
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_empty_changeset_produces_empty_list(self, base_gpkg, identical_gpkg):
+        """No changes = empty geodiff list (same as CLI)."""
+        changeset_path, temp_dir = create_changeset(base_gpkg, identical_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            assert result == {"geodiff": []}
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
+
+    def test_insert_values_match_source_data(self, empty_gpkg, base_gpkg):
+        """Inserted column values should match the actual feature data."""
+        changeset_path, temp_dir = create_changeset(empty_gpkg, base_gpkg)
+        try:
+            result = list_changes_json(changeset_path)
+            # Find Roma entry (fid=1)
+            roma_entry = None
+            for entry in result["geodiff"]:
+                cols = {c["column"]: c.get("new") for c in entry["changes"]}
+                if cols.get(0) == 1:  # fid=1 is Roma
+                    roma_entry = cols
+                    break
+
+            assert roma_entry is not None, "Roma (fid=1) not found in inserts"
+            # column 2 = name, column 3 = description, column 4 = population
+            assert roma_entry[2] == "Roma"
+            assert roma_entry[3] == "Capital of Italy"
+            assert roma_entry[4] == 2870500
+        finally:
+            Path(changeset_path).unlink()
+            temp_dir.rmdir()
